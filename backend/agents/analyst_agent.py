@@ -5,9 +5,8 @@ import operator
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langgraph.graph import StateGraph, END
 from langchain_groq import ChatGroq
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_mistralai import ChatMistralAI
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import chromadb
 import json
@@ -49,9 +48,20 @@ def get_chroma_client():
         database=os.getenv("CHROMA_DATABASE", "default_database")
     )
 
-print("Loading global HuggingFaceEmbeddings in analyst_agent...")
-global_embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-print("Global embeddings loaded.")
+# Lazy-initialized embeddings — uses Google API, no local model download needed
+_embeddings = None
+
+def get_embeddings():
+    global _embeddings
+    if _embeddings is None:
+        google_key = os.getenv("GOOGLE_API_KEY")
+        if not google_key:
+            raise RuntimeError("GOOGLE_API_KEY is required for embeddings")
+        _embeddings = GoogleGenerativeAIEmbeddings(
+            model="models/embedding-001",
+            google_api_key=google_key
+        )
+    return _embeddings
 
 def load_data(state: AgentState):
     """Loads either structured data (CSV/Excel) or unstructured text (PDF, DOCX, TXT)."""
@@ -115,7 +125,7 @@ def store_insights_in_vectordb(state: AgentState):
             raw_schema = f"Columns: {list(df.columns)}\nTypes: {df.dtypes.to_dict()}"
             full_document = f"Raw Schema:\n{raw_schema}\n\nSummary Statistics:\n{state['summary_stats']}\n\nGenerated Insights:\n{state['insights']}"
             
-            vector = global_embeddings.embed_query(full_document)
+            vector = get_embeddings().embed_query(full_document)
             collection.add(
                 ids=[f"dataset_{state['dataset_id']}_insights"],
                 embeddings=[vector],
@@ -127,7 +137,7 @@ def store_insights_in_vectordb(state: AgentState):
             docs = state["text_chunks"]
             metadatas = [{"dataset_id": state["dataset_id"], "type": "document_chunk"} for _ in range(len(docs))]
             # Batch embedding
-            embeddings = global_embeddings.embed_documents(docs)
+            embeddings = get_embeddings().embed_documents(docs)
             collection.add(
                 ids=ids,
                 embeddings=embeddings,
