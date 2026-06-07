@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import chromadb
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 import json
 import uuid
 from typing import List
@@ -72,7 +72,23 @@ def get_chroma_client():
         database=os.getenv("CHROMA_DATABASE", "default_database")
     )
 
-global_embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+# Lazy-initialized embeddings — loaded on first use, not at import time
+# Uses Google's API so no local model is downloaded (saves 400MB+ RAM)
+_embeddings = None
+
+def get_embeddings():
+    global _embeddings
+    if _embeddings is None:
+        google_key = os.getenv("GOOGLE_API_KEY")
+        if google_key:
+            _embeddings = GoogleGenerativeAIEmbeddings(
+                model="models/embedding-001",
+                google_api_key=google_key
+            )
+        else:
+            # Fallback: use Groq LLM to generate a simple keyword embedding
+            raise RuntimeError("GOOGLE_API_KEY is required for embeddings")
+    return _embeddings
 
 @router.get("/sessions", response_model=List[schemas.ChatSessionResponse])
 def get_chat_sessions(
@@ -175,7 +191,7 @@ def chat_with_dataset(
         retrieved_context = ""
         client = get_chroma_client()
         collection = client.get_or_create_collection(name="dataset_insights")
-        vector = global_embeddings.embed_query(request.question)
+        vector = get_embeddings().embed_query(request.question)
         
         try:
             # Query chroma for context (both insights and document chunks)
