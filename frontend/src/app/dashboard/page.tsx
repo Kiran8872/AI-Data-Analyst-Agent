@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -21,24 +21,25 @@ export default function DashboardPage() {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
 
-  useEffect(() => {
-    const loadDatasets = async () => {
-      if (!token) return;
-      try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/datasets/`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (res.ok) {
-          setDatasets(await res.json());
-        } else if (res.status === 401) {
-          logout();
-        }
-      } catch (e) {
-        console.error(e);
+  const fetchDatasets = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/datasets/`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        setDatasets(await res.json());
+      } else if (res.status === 401) {
+        logout();
       }
-    };
-    loadDatasets();
+    } catch (e) {
+      console.error(e);
+    }
   }, [token, logout]);
+
+  useEffect(() => {
+    fetchDatasets();
+  }, [fetchDatasets]);
 
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
