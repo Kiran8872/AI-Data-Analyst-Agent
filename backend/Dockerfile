@@ -8,9 +8,6 @@ ENV PYTHONUNBUFFERED=1
 # Install system dependencies
 RUN apt-get update && apt-get install -y libpq-dev gcc
 
-# Install CPU-only PyTorch to avoid downloading 3GB of GPU drivers on Render Free Tier
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
-
 # Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
