@@ -20,16 +20,22 @@ print("Database tables created!")
 
 app = FastAPI(title="AI Data Analyst Agent API", version="1.0.0")
 
+is_vercel = os.getenv("VERCEL") == "1"
+default_origin = "*"
+frontend_origin = os.getenv("FRONTEND_ORIGIN")
+allowed_origins = [frontend_origin] if frontend_origin else [default_origin]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # For development, allow all
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-os.makedirs("static/charts", exist_ok=True)
-app.mount("/static", StaticFiles(directory="static"), name="static")
+static_root = "/tmp/static" if is_vercel else "static"
+os.makedirs(os.path.join(static_root, "charts"), exist_ok=True)
+app.mount("/static", StaticFiles(directory=static_root), name="static")
 
 app.include_router(datasets.router)
 app.include_router(chat.router)

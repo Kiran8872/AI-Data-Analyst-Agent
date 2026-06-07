@@ -13,7 +13,7 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
-UPLOAD_DIR = "uploads"
+UPLOAD_DIR = "/tmp/uploads" if os.getenv("VERCEL") == "1" else "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 def process_dataset(dataset_id: int, filepath: str, db: Session):

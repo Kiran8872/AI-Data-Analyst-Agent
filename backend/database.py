@@ -7,7 +7,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Use SQLite for local development by default, but allow overriding with DATABASE_URL
-SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./sql_app.db")
+default_db = "sqlite:////tmp/sql_app.db" if os.getenv("VERCEL") == "1" else "sqlite:///./sql_app.db"
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", default_db)
 
 # SQLite needs check_same_thread=False
 connect_args = {"check_same_thread": False} if SQLALCHEMY_DATABASE_URL.startswith("sqlite") else {}
