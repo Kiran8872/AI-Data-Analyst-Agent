@@ -21,9 +21,12 @@ print("Database tables created!")
 app = FastAPI(title="AI Data Analyst Agent API", version="1.0.0")
 
 is_vercel = os.getenv("VERCEL") == "1"
-default_origin = "*"
-frontend_origin = os.getenv("FRONTEND_ORIGIN")
-allowed_origins = [frontend_origin] if frontend_origin else [default_origin]
+frontend_origins = os.getenv("FRONTEND_ORIGINS") or os.getenv("FRONTEND_ORIGIN")
+allowed_origins = (
+    [origin.strip().rstrip("/") for origin in frontend_origins.split(",") if origin.strip()]
+    if frontend_origins
+    else ["*"]
+)
 
 app.add_middleware(
     CORSMiddleware,
