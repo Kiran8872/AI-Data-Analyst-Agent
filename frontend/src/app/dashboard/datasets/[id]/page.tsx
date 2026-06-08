@@ -15,6 +15,7 @@ export default function DatasetDetailsPage() {
   const params = useParams();
   const router = useRouter();
   const datasetId = params.id;
+  const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
   const [dataset, setDataset] = useState<any>(null);
   const [profileData, setProfileData] = useState<any>(null);
@@ -29,17 +30,17 @@ export default function DatasetDetailsPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const dsRes = await fetch(`/datasets/${datasetId}`, {
+      const dsRes = await fetch(`${apiBase}/datasets/${datasetId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (dsRes.ok) setDataset(await dsRes.json());
 
-      const profRes = await fetch(`/datasets/${datasetId}/profile`, {
+      const profRes = await fetch(`${apiBase}/datasets/${datasetId}/profile`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (profRes.ok) setProfileData(await profRes.json());
       
-      const sumRes = await fetch(`/datasets/${datasetId}/summary`, {
+      const sumRes = await fetch(`${apiBase}/datasets/${datasetId}/summary`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (sumRes.ok) setAiSummary((await sumRes.json()).summary);
@@ -48,12 +49,12 @@ export default function DatasetDetailsPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, datasetId]);
+  }, [token, datasetId, apiBase]);
 
   const fetchSentiment = useCallback(async () => {
     setSentimentLoading(true);
     try {
-      const res = await fetch(`/datasets/${datasetId}/sentiment`, {
+      const res = await fetch(`${apiBase}/datasets/${datasetId}/sentiment`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) setSentimentData(await res.json());
@@ -62,7 +63,7 @@ export default function DatasetDetailsPage() {
     } finally {
       setSentimentLoading(false);
     }
-  }, [token, datasetId]);
+  }, [token, datasetId, apiBase]);
 
   useEffect(() => {
     if (token && datasetId) {
@@ -78,7 +79,7 @@ export default function DatasetDetailsPage() {
     setIsDialogOpen(true);
     setPreviewLoading(true);
     try {
-      const res = await fetch(`/datasets/${datasetId}/data`, {
+      const res = await fetch(`${apiBase}/datasets/${datasetId}/data`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {

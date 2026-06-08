@@ -13,6 +13,8 @@ import json
 import fitz # PyMuPDF
 import docx
 
+GOOGLE_EMBEDDING_MODEL = os.getenv("GOOGLE_EMBEDDING_MODEL", "models/gemini-embedding-001")
+
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], operator.add]
     filepath: str
@@ -48,7 +50,7 @@ def get_chroma_client():
         database=os.getenv("CHROMA_DATABASE", "default_database")
     )
 
-# Lazy-initialized embeddings — uses Google API, no local model download needed
+# Lazy-initialized embeddings use Google API, no local model download needed
 _embeddings = None
 
 def get_embeddings():
@@ -58,7 +60,7 @@ def get_embeddings():
         if not google_key:
             raise RuntimeError("GOOGLE_API_KEY is required for embeddings")
         _embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/embedding-001",
+            model=GOOGLE_EMBEDDING_MODEL,
             google_api_key=google_key
         )
     return _embeddings

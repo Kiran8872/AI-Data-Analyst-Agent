@@ -17,6 +17,8 @@ from langchain_experimental.agents.agent_toolkits import create_pandas_dataframe
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_mistralai import ChatMistralAI
 
+GOOGLE_EMBEDDING_MODEL = os.getenv("GOOGLE_EMBEDDING_MODEL", "models/gemini-embedding-001")
+
 router = APIRouter(
     prefix="/chat",
     tags=["chat"],
@@ -72,7 +74,7 @@ def get_chroma_client():
         database=os.getenv("CHROMA_DATABASE", "default_database")
     )
 
-# Lazy-initialized embeddings — loaded on first use, not at import time
+# Lazy-initialized embeddings are loaded on first use, not at import time
 # Uses Google's API so no local model is downloaded (saves 400MB+ RAM)
 _embeddings = None
 
@@ -82,7 +84,7 @@ def get_embeddings():
         google_key = os.getenv("GOOGLE_API_KEY")
         if google_key:
             _embeddings = GoogleGenerativeAIEmbeddings(
-                model="models/embedding-001",
+                model=GOOGLE_EMBEDDING_MODEL,
                 google_api_key=google_key
             )
         else:
