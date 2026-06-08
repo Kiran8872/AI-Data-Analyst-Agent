@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, Float
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, Float, LargeBinary
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import pytz
@@ -34,6 +34,17 @@ class Dataset(Base):
 
     owner = relationship("User", back_populates="datasets")
     reports = relationship("AnalysisReport", back_populates="dataset")
+    file_record = relationship("DatasetFile", back_populates="dataset", uselist=False, cascade="all, delete-orphan")
+
+
+class DatasetFile(Base):
+    __tablename__ = "dataset_files"
+
+    dataset_id = Column(Integer, ForeignKey("datasets.id"), primary_key=True)
+    content = Column(LargeBinary, nullable=False)
+    updated_at = Column(DateTime, default=get_now, onupdate=get_now)
+
+    dataset = relationship("Dataset", back_populates="file_record")
 
 
 class AnalysisReport(Base):

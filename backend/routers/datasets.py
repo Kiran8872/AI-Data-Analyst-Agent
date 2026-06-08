@@ -1,10 +1,9 @@
 import os
-import shutil
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List
 
-import models, schemas, auth, database
+import models, schemas, auth, database, file_storage
 from agents.analyst_agent import run_analysis_agent
 
 router = APIRouter(
@@ -13,7 +12,7 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
-UPLOAD_DIR = "/tmp/uploads" if os.getenv("VERCEL") == "1" else "uploads"
+UPLOAD_DIR = file_storage.UPLOAD_DIR
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 def process_dataset(dataset_id: int, filepath: str, db: Session):
@@ -28,6 +27,8 @@ def process_dataset(dataset_id: int, filepath: str, db: Session):
         db.commit()
     except Exception as e:
         print(f"Error processing dataset {dataset_id}: {e}")
+    finally:
+        db.close()
 
 @router.post("/upload", response_model=schemas.DatasetResponse)
 async def upload_dataset(
@@ -40,12 +41,13 @@ async def upload_dataset(
         raise HTTPException(status_code=400, detail="Unsupported file format.")
     
     safe_filename = os.path.basename(file.filename)
-    file_location = os.path.join(UPLOAD_DIR, f"{current_user.id}_{safe_filename}")
+    file_location = file_storage.dataset_path(current_user.id, safe_filename)
+    file_content = await file.read()
     
     with open(file_location, "wb+") as file_object:
-        shutil.copyfileobj(file.file, file_object)
+        file_object.write(file_content)
         
-    file_size = os.path.getsize(file_location)
+    file_size = len(file_content)
     
     db_dataset = models.Dataset(
         filename=safe_filename,
@@ -56,6 +58,8 @@ async def upload_dataset(
     db.add(db_dataset)
     db.commit()
     db.refresh(db_dataset)
+    file_storage.store_dataset_file(db, db_dataset, file_content)
+    db.commit()
     
     # Trigger background analysis
     background_tasks.add_task(process_dataset, db_dataset.id, file_location, database.SessionLocal())
@@ -90,12 +94,14 @@ def delete_dataset(
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
     
+    filepath = dataset.filepath
+    db.query(models.DatasetFile).filter(models.DatasetFile.dataset_id == dataset.id).delete()
     db.delete(dataset)
     db.commit()
     
-    if os.path.exists(dataset.filepath):
+    if os.path.exists(filepath):
         try:
-            os.remove(dataset.filepath)
+            os.remove(filepath)
         except:
             pass
             
@@ -119,14 +125,13 @@ def get_dataset_data(
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
     
-    if not os.path.exists(dataset.filepath):
-        raise HTTPException(status_code=404, detail="Data file not found on disk")
+    filepath = file_storage.ensure_dataset_file(db, dataset)
         
     try:
-        if dataset.filepath.endswith('.csv'):
-            df = pd.read_csv(dataset.filepath, nrows=100)
+        if filepath.endswith('.csv'):
+            df = pd.read_csv(filepath, nrows=100)
         else:
-            df = pd.read_excel(dataset.filepath, nrows=100)
+            df = pd.read_excel(filepath, nrows=100)
             
         # Convert timestamp/datetime objects to string to prevent JSON serialization errors
         df = df.fillna("")
@@ -147,14 +152,13 @@ def get_dataset_profile(
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
     
-    if not os.path.exists(dataset.filepath):
-        raise HTTPException(status_code=404, detail="Data file not found on disk")
+    filepath = file_storage.ensure_dataset_file(db, dataset)
         
     try:
-        if dataset.filepath.endswith('.csv'):
-            df = pd.read_csv(dataset.filepath)
+        if filepath.endswith('.csv'):
+            df = pd.read_csv(filepath)
         else:
-            df = pd.read_excel(dataset.filepath)
+            df = pd.read_excel(filepath)
             
         columns_stats = []
         for col in df.columns:
@@ -193,6 +197,7 @@ def get_dataset(
     dataset = db.query(models.Dataset).filter(models.Dataset.id == dataset_id, models.Dataset.owner_id == current_user.id).first()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
+    file_storage.ensure_dataset_file(db, dataset)
     return dataset
 
 @router.post("/{dataset_id}/clean")
@@ -202,14 +207,15 @@ def clean_dataset(
     db: Session = Depends(database.get_db)
 ):
     dataset = db.query(models.Dataset).filter(models.Dataset.id == dataset_id, models.Dataset.owner_id == current_user.id).first()
-    if not dataset or not os.path.exists(dataset.filepath):
+    if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
+    filepath = file_storage.ensure_dataset_file(db, dataset)
         
     try:
-        if dataset.filepath.endswith('.csv'):
-            df = pd.read_csv(dataset.filepath)
+        if filepath.endswith('.csv'):
+            df = pd.read_csv(filepath)
         else:
-            df = pd.read_excel(dataset.filepath)
+            df = pd.read_excel(filepath)
             
         initial_rows = len(df)
         df.drop_duplicates(inplace=True)
@@ -222,12 +228,13 @@ def clean_dataset(
                 
         final_rows = len(df)
         
-        if dataset.filepath.endswith('.csv'):
-            df.to_csv(dataset.filepath, index=False)
+        if filepath.endswith('.csv'):
+            df.to_csv(filepath, index=False)
         else:
-            df.to_excel(dataset.filepath, index=False)
+            df.to_excel(filepath, index=False)
             
-        dataset.size_bytes = os.path.getsize(dataset.filepath)
+        dataset.size_bytes = os.path.getsize(filepath)
+        file_storage.refresh_dataset_file(db, dataset)
         db.commit()
         
         return {"message": "Cleaned successfully", "rows_removed": initial_rows - final_rows, "final_rows": final_rows}
@@ -241,11 +248,12 @@ def analyze_sentiment(
     db: Session = Depends(database.get_db)
 ):
     dataset = db.query(models.Dataset).filter(models.Dataset.id == dataset_id, models.Dataset.owner_id == current_user.id).first()
-    if not dataset or not os.path.exists(dataset.filepath):
+    if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
+    filepath = file_storage.ensure_dataset_file(db, dataset)
         
     try:
-        df = pd.read_csv(dataset.filepath) if dataset.filepath.endswith('.csv') else pd.read_excel(dataset.filepath)
+        df = pd.read_csv(filepath) if filepath.endswith('.csv') else pd.read_excel(filepath)
         
         # Find string columns
         text_cols = df.select_dtypes(include=['object', 'string']).columns
@@ -308,11 +316,12 @@ def get_dataset_summary(
     db: Session = Depends(database.get_db)
 ):
     dataset = db.query(models.Dataset).filter(models.Dataset.id == dataset_id, models.Dataset.owner_id == current_user.id).first()
-    if not dataset or not os.path.exists(dataset.filepath):
+    if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
+    filepath = file_storage.ensure_dataset_file(db, dataset)
         
     try:
-        df = pd.read_csv(dataset.filepath) if dataset.filepath.endswith('.csv') else pd.read_excel(dataset.filepath)
+        df = pd.read_csv(filepath) if filepath.endswith('.csv') else pd.read_excel(filepath)
         cols = list(df.columns)
         row_count = len(df)
         

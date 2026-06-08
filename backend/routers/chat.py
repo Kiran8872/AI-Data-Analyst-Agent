@@ -10,7 +10,7 @@ import json
 import uuid
 from typing import List
 
-import models, auth, database, schemas
+import models, auth, database, schemas, file_storage
 from langchain_groq import ChatGroq
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_experimental.agents.agent_toolkits import create_pandas_dataframe_agent
@@ -176,7 +176,9 @@ def chat_with_dataset(
     
     if len(datasets) != len(request.dataset_ids):
         raise HTTPException(status_code=404, detail="One or more datasets not found or access denied")
-        
+
+    dataset_paths = {dataset.id: file_storage.ensure_dataset_file(db, dataset) for dataset in datasets}
+
     try:
         start_time = time.time()
         session_id = request.session_id or str(uuid.uuid4())
@@ -187,8 +189,8 @@ def chat_with_dataset(
         db.commit()
         
         # Determine if we have structured, unstructured, or mixed data
-        structured_datasets = [d for d in datasets if d.filepath.endswith(('.csv', '.xlsx', '.xls'))]
-        unstructured_datasets = [d for d in datasets if d.filepath.endswith(('.pdf', '.txt', '.docx'))]
+        structured_datasets = [d for d in datasets if dataset_paths[d.id].endswith(('.csv', '.xlsx', '.xls'))]
+        unstructured_datasets = [d for d in datasets if dataset_paths[d.id].endswith(('.pdf', '.txt', '.docx'))]
         
         retrieved_context = ""
         client = get_chroma_client()
@@ -217,7 +219,7 @@ def chat_with_dataset(
                 answer = f"I'm sorry, I encountered an issue generating the answer: {e}"
         else:
             # We have structured datasets. Load them all.
-            dfs = [get_cached_dataframe(d.id, d.filepath) for d in structured_datasets]
+            dfs = [get_cached_dataframe(d.id, dataset_paths[d.id]) for d in structured_datasets]
             
             # Smart Query Router
             router_prompt = f"""
